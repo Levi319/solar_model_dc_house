@@ -4,6 +4,7 @@ from pvlib import pvsystem, modelchain, temperature
 from pvlib.location import Location
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+import numpy as np
 
 # Function to load and filter weather data
 def load_weather_data(file_path, start_time, end_time):
@@ -18,13 +19,13 @@ def load_weather_data(file_path, start_time, end_time):
 
 # Load weather data and filter by desired time range
 weather_file = 'HistoricalWeather.csv'
-start_time = '2023-06-24 14:00:00'
-end_time = '2023-06-25 14:00:00'
+start_time = '2023-06-19 20:00:00'
+end_time = '2024-06-19 19:00:00'
 weather = load_weather_data(weather_file, start_time, end_time)
 
 # Define module parameters for Panasonic VBHN325KA03
 module_parameters = {
-    'pdc0': 325,  # DC power at standard test conditions (W)
+    'pdc0': 325.6,  # DC power at standard test conditions (W)
     'v_mp': 59.2,  # Maximum power voltage (V)
     'i_mp': 5.50,  # Maximum power current (A)
     'v_oc': 70.9,  # Open circuit voltage (V)
@@ -70,7 +71,7 @@ def model_segment(segment, weather, site):
     mc = modelchain.ModelChain(system, site, dc_model='pvwatts', ac_model='pvwatts', aoi_model='physical', spectral_model='no_loss')
 
     # Debug: print the PVSystem parameters
-    print(f"Modeling segment with parameters: {segment}")
+    #print(f"Modeling segment with parameters: {segment}")
 
     # Run the model and print intermediate steps
     try:
@@ -93,23 +94,35 @@ def model_segment(segment, weather, site):
         print(f"Error modeling segment {segment}: {e}")
         return pd.Series(0, index=weather.index)  # return zero power if error
 
-
 # Model each segment and sum their outputs
 dc_power_total = sum(model_segment(segment, weather, site).dc for segment in segments)
 ac_power_total = sum(model_segment(segment, weather, site).ac for segment in segments)
-# Print the total DC power
-print(f"Total DC Power: {dc_power_total}")
+
+# Assume nominal voltage = 355.5 V
+voltage = 355
+# Convert to current
+dc_current_total = dc_power_total/355.5
+
+# Print the total DC power at each timestep
+#print(f"Total DC Power: {dc_power_total}")
+
+# Print max DC Power and current
+print(f"Max DC Power is: {max(dc_power_total[0:-1])}")
+print(f"Max DC Current is: {max(dc_current_total[0:-1])}")
 
 # Print the total AC power
-print(f"Total AC Power: {ac_power_total}")
+# print(f"Total AC Power: {ac_power_total}")
 
-print(f"Weather Data: {weather}")
+# Print the weather data
+# print(f"Weather Data: {weather}")
 # Plot the results
+'''
 ac_power_total.plot()
 plt.xlabel('Time')
 plt.ylabel('Total AC Power (W)')
 plt.title('Total Solar PV Output')
 plt.show()
+'''
 
 # Plot the results
 dc_power_total.plot()
@@ -118,6 +131,14 @@ plt.ylabel('Total DC Power (W)')
 plt.title('Total Solar PV Output')
 plt.show()
 
+# Plot the results
+dc_current_total.plot()
+plt.xlabel('Time')
+plt.ylabel('Total DC Current (A)')
+plt.title('Total Current Supply from PV')
+plt.show()
+
+'''
 fig,ax1 = plt.subplots()
 
 ax1.plot(weather['temperature'], label='Temperature', color = 'blue')
@@ -132,3 +153,34 @@ ax2.set_ylabel('Irradiance (w/m^2)', color = 'red')
 
 plt.title('Global Irradiance and Temperature')
 plt.show()
+'''
+bins = np.zeros(19)
+bin_current = np.zeros(19)
+bin_total = len(dc_current_total)
+
+# Put into bins
+for i in range(1,20):
+    i_bin = (i)*2-1
+    i_bin_up = i_bin+1
+    i_bin_down = i_bin-1
+    upper_bin = sum(dc_current_total >= i_bin_up)
+    lower_bin = sum(dc_current_total < i_bin_down)
+    bin_sum = bin_total - upper_bin - lower_bin
+    bin_current[i-1] = bin_sum
+
+# Create bins
+t=range(1,2*i,2)
+
+# Put into DF
+bins_cur = pd.DataFrame(bin_current,t)
+
+print(bins_cur)
+
+# Plot the histogram
+plt.bar(t, bin_current, width=1.5, edgecolor='black', alpha=0.7)
+plt.xlabel('Current Range (A)')
+plt.ylabel('Hours in Each Bin')
+plt.title('Histogram of DC Current Bins')
+plt.show()
+
+
